@@ -370,7 +370,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json;charset=UTF-8": components["schemas"]["PostCommentDto"];
+                    "*/*": components["schemas"]["PostCommentDto"];
                 };
             };
             /** @description Bad Request */
@@ -379,7 +379,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json;charset=UTF-8": components["schemas"]["RsDataVoid"];
+                    "*/*": components["schemas"]["RsDataVoid"];
                 };
             };
         };
@@ -406,7 +406,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json;charset=UTF-8": components["schemas"]["RsDataVoid"];
+                    "*/*": components["schemas"]["RsDataVoid"];
                 };
             };
             /** @description Bad Request */
@@ -415,7 +415,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json;charset=UTF-8": components["schemas"]["RsDataVoid"];
+                    "*/*": components["schemas"]["RsDataVoid"];
                 };
             };
         };
@@ -438,7 +438,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json;charset=UTF-8": components["schemas"]["RsDataVoid"];
+                    "*/*": components["schemas"]["RsDataVoid"];
                 };
             };
             /** @description Bad Request */
@@ -447,7 +447,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json;charset=UTF-8": components["schemas"]["RsDataVoid"];
+                    "*/*": components["schemas"]["RsDataVoid"];
                 };
             };
         };
@@ -469,7 +469,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json;charset=UTF-8": components["schemas"]["PostWithContentDto"];
+                    "*/*": components["schemas"]["PostWithContentDto"];
                 };
             };
             /** @description Bad Request */
@@ -478,7 +478,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json;charset=UTF-8": components["schemas"]["RsDataVoid"];
+                    "*/*": components["schemas"]["RsDataVoid"];
                 };
             };
         };
@@ -504,7 +504,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json;charset=UTF-8": components["schemas"]["RsDataVoid"];
+                    "*/*": components["schemas"]["RsDataVoid"];
                 };
             };
             /** @description Bad Request */
@@ -513,7 +513,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json;charset=UTF-8": components["schemas"]["RsDataVoid"];
+                    "*/*": components["schemas"]["RsDataVoid"];
                 };
             };
         };
@@ -535,7 +535,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json;charset=UTF-8": components["schemas"]["RsDataVoid"];
+                    "*/*": components["schemas"]["RsDataVoid"];
                 };
             };
             /** @description Bad Request */
@@ -544,7 +544,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json;charset=UTF-8": components["schemas"]["RsDataVoid"];
+                    "*/*": components["schemas"]["RsDataVoid"];
                 };
             };
         };
@@ -570,7 +570,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json;charset=UTF-8": components["schemas"]["PageDtoPostDto"];
+                    "*/*": components["schemas"]["PageDtoPostDto"];
                 };
             };
             /** @description Bad Request */
@@ -579,7 +579,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json;charset=UTF-8": components["schemas"]["RsDataVoid"];
+                    "*/*": components["schemas"]["RsDataVoid"];
                 };
             };
         };
@@ -603,7 +603,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json;charset=UTF-8": components["schemas"]["RsDataPostDto"];
+                    "*/*": components["schemas"]["RsDataPostDto"];
                 };
             };
             /** @description Bad Request */
@@ -612,7 +612,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json;charset=UTF-8": components["schemas"]["RsDataVoid"];
+                    "*/*": components["schemas"]["RsDataVoid"];
                 };
             };
         };
@@ -634,7 +634,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json;charset=UTF-8": components["schemas"]["PostCommentDto"][];
+                    "*/*": components["schemas"]["PostCommentDto"][];
                 };
             };
             /** @description Bad Request */
@@ -643,7 +643,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json;charset=UTF-8": components["schemas"]["RsDataVoid"];
+                    "*/*": components["schemas"]["RsDataVoid"];
                 };
             };
         };
@@ -669,7 +669,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json;charset=UTF-8": components["schemas"]["RsDataPostCommentDto"];
+                    "*/*": components["schemas"]["RsDataPostCommentDto"];
                 };
             };
             /** @description Bad Request */
@@ -678,7 +678,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json;charset=UTF-8": components["schemas"]["RsDataVoid"];
+                    "*/*": components["schemas"]["RsDataVoid"];
                 };
             };
         };
@@ -702,7 +702,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json;charset=UTF-8": components["schemas"]["RsDataMemberDto"];
+                    "*/*": components["schemas"]["RsDataMemberDto"];
                 };
             };
             /** @description Bad Request */
@@ -711,7 +711,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json;charset=UTF-8": components["schemas"]["RsDataVoid"];
+                    "*/*": components["schemas"]["RsDataVoid"];
                 };
             };
         };
@@ -735,7 +735,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json;charset=UTF-8": components["schemas"]["RsDataMemberLoginResBody"];
+                    "*/*": components["schemas"]["RsDataMemberLoginResBody"];
                 };
             };
             /** @description Bad Request */
@@ -744,7 +744,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json;charset=UTF-8": components["schemas"]["RsDataVoid"];
+                    "*/*": components["schemas"]["RsDataVoid"];
                 };
             };
         };
@@ -764,7 +764,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json;charset=UTF-8": components["schemas"]["MemberWithUsernameDto"];
+                    "*/*": components["schemas"]["MemberWithUsernameDto"];
                 };
             };
             /** @description Bad Request */
@@ -773,7 +773,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json;charset=UTF-8": components["schemas"]["RsDataVoid"];
+                    "*/*": components["schemas"]["RsDataVoid"];
                 };
             };
         };
@@ -793,7 +793,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json;charset=UTF-8": components["schemas"]["AdmPostCountResBody"];
+                    "*/*": components["schemas"]["AdmPostCountResBody"];
                 };
             };
             /** @description Bad Request */
@@ -802,7 +802,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json;charset=UTF-8": components["schemas"]["RsDataVoid"];
+                    "*/*": components["schemas"]["RsDataVoid"];
                 };
             };
         };
@@ -828,7 +828,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json;charset=UTF-8": components["schemas"]["PageDtoMemberWithUsernameDto"];
+                    "*/*": components["schemas"]["PageDtoMemberWithUsernameDto"];
                 };
             };
             /** @description Bad Request */
@@ -837,7 +837,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json;charset=UTF-8": components["schemas"]["RsDataVoid"];
+                    "*/*": components["schemas"]["RsDataVoid"];
                 };
             };
         };
@@ -859,7 +859,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json;charset=UTF-8": components["schemas"]["MemberWithUsernameDto"];
+                    "*/*": components["schemas"]["MemberWithUsernameDto"];
                 };
             };
             /** @description Bad Request */
@@ -868,7 +868,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json;charset=UTF-8": components["schemas"]["RsDataVoid"];
+                    "*/*": components["schemas"]["RsDataVoid"];
                 };
             };
         };
@@ -888,7 +888,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json;charset=UTF-8": components["schemas"]["RsDataVoid"];
+                    "*/*": components["schemas"]["RsDataVoid"];
                 };
             };
             /** @description Bad Request */
@@ -897,7 +897,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json;charset=UTF-8": components["schemas"]["RsDataVoid"];
+                    "*/*": components["schemas"]["RsDataVoid"];
                 };
             };
         };
