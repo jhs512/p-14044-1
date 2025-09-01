@@ -1,0 +1,189 @@
+name: deploy
+
+on:
+  push:
+    paths:
+      - ".github/workflows/**"
+      - "backend/.env"
+      - "backend/src/**"
+      - "backend/build.gradle.kts"
+      - "backend/settings.gradle.kts"
+      - "backend/Dockerfile"
+    branches:
+      - main
+
+# GITHUB_TOKEN 권한 최소화/명시화
+permissions:
+  contents: write # 릴리즈/태그 생성에 필요
+  packages: write # GHCR 푸시에 필요
+
+# 기본 셸
+defaults:
+  run:
+    shell: bash
+
+# 전역 상수(요청사항)
+env:
+  # === 배포 상수들 ===
+  IMAGE_NAME: p-14044-1 # 도커 이미지 이름(리포지토리 내에서 사용할 짧은 이름)
+  CONTAINER_NAME: p-14044-1_1 # 서버(EC2)에서 띄울 컨테이너 이름
+  EC2_NAME_TAG: terra-ec2-1 # EC2 Name 태그 값(인스턴스 탐색용)
+  DOCKER_NETWORK: common # 서버에서 사용할 도커 네트워크
+  # === 태그/릴리즈 생성 시 기본값 ===
+  RELEASE_PREFIX: "Release " # 릴리즈 이름 접두어
+
+jobs:
+  makeTagAndRelease:
+    runs-on: ubuntu-latest
+    outputs:
+      # 새로 생성된 태그를 다음 job에서 사용
+      tag_name: ${{ steps.create_tag.outputs.new_tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # 새 태그 자동 생성 (기존 태그 기준으로 다음 버전 생성)
+      - name: Create Tag
+        id: create_tag
+        uses: mathieudutour/github-tag-action@v6.2
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
+      # 깃허브 릴리즈 생성
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ steps.create_tag.outputs.new_tag }}
+          release_name: ${{ env.RELEASE_PREFIX }}${{ steps.create_tag.outputs.new_tag }}
+          body: ${{ steps.create_tag.outputs.changelog }}
+          draft: false
+          prerelease: false
+
+  buildImageAndPush:
+    name: 도커 이미지 빌드와 푸시
+    needs: makeTagAndRelease
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # (옵션) 빌드에 필요한 .env를 backend/.env로 기록
+      - name: .env 생성
+        env:
+          DOT_ENV: ${{ secrets.DOT_ENV }}
+        run: |
+          # 빌드타임 환경파일이 필요할 때만 생성
+          echo "$DOT_ENV" > backend/.env
+
+      # Buildx 활성화
+      - name: Docker Buildx 설치
+        uses: docker/setup-buildx-action@v3
+
+      # GHCR 로그인
+      - name: 레지스트리 로그인
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # 리포지토리 소유자 소문자화(ghcr 경로용)
+      - name: set lower case owner name
+        run: |
+          echo "OWNER_LC=${OWNER,,}" >> "$GITHUB_ENV"
+        env:
+          OWNER: "${{ github.repository_owner }}"
+
+      # 도커 빌드 & 푸시
+      - name: 빌드 앤 푸시
+        uses: docker/build-push-action@v6
+        with:
+          context: backend # 백엔드 폴더를 빌드 컨텍스트로
+          push: true # GHCR로 푸시
+          # GitHub Actions 캐시 사용(간단/안정)
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          tags: |
+            ghcr.io/${{ env.OWNER_LC }}/${{ env.IMAGE_NAME }}:${{ needs.makeTagAndRelease.outputs.tag_name }}
+            ghcr.io/${{ env.OWNER_LC }}/${{ env.IMAGE_NAME }}:latest
+
+  deploy:
+    name: EC2 배포(SSM)
+    needs: [makeTagAndRelease, buildImageAndPush]
+    runs-on: ubuntu-latest
+    steps:
+      # AWS 자격증명 구성 (OIDC/키 중 택1 — 현재는 시크릿 키 방식)
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ secrets.AWS_REGION }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+      # 배포에 사용할 값들 준비: OWNER_LC, TAG, IMAGE_REF
+      - name: 준비 변수 계산
+        id: prep
+        run: |
+          # 리포지토리 오너를 소문자로 변환(ghcr 경로 규칙 대응)
+          echo "OWNER_LC=${OWNER,,}" >> "$GITHUB_ENV"
+          echo "TAG=${{ needs.makeTagAndRelease.outputs.tag_name }}" >> "$GITHUB_ENV"
+          echo "IMAGE_REF=ghcr.io/${OWNER_LC}/${IMAGE_NAME}:${{ needs.makeTagAndRelease.outputs.tag_name }}" >> "$GITHUB_ENV"
+          echo "IMAGE_LATEST=ghcr.io/${OWNER_LC}/${IMAGE_NAME}:latest" >> "$GITHUB_ENV"
+        env:
+          OWNER: "${{ github.repository_owner }}"
+
+      # Name 태그로 EC2 인스턴스 ID 조회(실행 중인 인스턴스만)
+      - name: 인스턴스 ID 가져오기
+        id: get_instance_id
+        run: |
+          INSTANCE_ID=$(aws ec2 describe-instances \
+            --filters "Name=tag:Name,Values=${EC2_NAME_TAG}" "Name=instance-state-name,Values=running" \
+            --query "Reservations[].Instances[].InstanceId" --output text)
+          if [[ -z "$INSTANCE_ID" || "$INSTANCE_ID" == "None" ]]; then
+            echo "해당 Name 태그(${EC2_NAME_TAG})의 실행 중인 인스턴스를 찾지 못했습니다."
+            exit 1
+          fi
+          echo "INSTANCE_ID=$INSTANCE_ID" >> "$GITHUB_ENV"
+          echo "타겟 인스턴스: $INSTANCE_ID"
+
+      # SSM 명령으로 원격 배포 수행
+      - name: AWS SSM Send-Command (Deploy)
+        uses: peterkimzz/aws-ssm-send-command@master
+        with:
+          aws-region: ${{ secrets.AWS_REGION }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          instance-ids: ${{ env.INSTANCE_ID }}
+          working-directory: /
+          comment: Deploy
+          command: |
+            set -euo pipefail
+
+            # --- 설정값(주입됨) ---
+            CONTAINER_NAME="${CONTAINER_NAME}"
+            DOCKER_NETWORK="${DOCKER_NETWORK}"
+            IMAGE_REF="${IMAGE_REF}"
+
+            echo "[INFO] pull ${IMAGE_REF}"
+            docker pull "${IMAGE_REF}"
+
+            echo "[INFO] stop & remove old container (ignore error if not exists)"
+            docker stop "${CONTAINER_NAME}" || true
+            docker rm   "${CONTAINER_NAME}" || true
+
+            echo "[INFO] remove old images (keep latest 2 versions)"
+            docker images --format "table {{.Repository}}:{{.Tag}}\t{{.ID}}" | \
+              grep "^${IMAGE_REF%:*}:" | \
+              tail -n +3 | \
+              awk '{print $2}' | \
+              xargs -r docker rmi || true
+
+            echo "[INFO] run new container"
+            docker run -d \
+              --name "${CONTAINER_NAME}" \
+              --network "${DOCKER_NETWORK}" \
+              --restart unless-stopped \
+              "${IMAGE_REF}"
+
+            echo "[INFO] done: ${CONTAINER_NAME} -> ${IMAGE_REF}"
