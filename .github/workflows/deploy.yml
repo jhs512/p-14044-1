@@ -1,14 +1,16 @@
 name: deploy
 
-# 환경변수 설정
+# =========================
+# 전역 환경변수(필요한 것만 최상단으로)
+# =========================
 env:
-  DOCKER_IMAGE_NAME: p-14044-1
-  CONTAINER_1_NAME: p-14044-1_1
-  CONTAINER_2_NAME: p-14044-1_2
-  CONTAINER_PORT: 8080
-  EC2_INSTANCE_TAG_NAME: terra-ec2-1
-  DOCKER_NETWORK: common
-  BACKEND_DIR: backend
+  IMAGE_REPOSITORY: p-14044-1 # GHCR 이미지 리포지토리명(소유자 포함 X)
+  CONTAINER_1_NAME: p-14044-1_1 # 슬롯1(고정 이름) - 색상 아님
+  CONTAINER_2_NAME: p-14044-1_2 # 슬롯2(고정 이름) - 색상 아님
+  CONTAINER_PORT: 8080 # 컨테이너 내부 포트(스프링부트)
+  EC2_INSTANCE_TAG_NAME: terra-ec2-1 # 배포 대상 EC2 Name 태그
+  DOCKER_NETWORK: common # NPM과 같은 도커 네트워크
+  BACKEND_DIR: backend # Dockerfile 위치
 
 on:
   push:
@@ -22,18 +24,32 @@ on:
     branches:
       - main
 
+# 권한 최소화/명시화
+permissions:
+  contents: write # 태그/릴리즈
+  packages: write # GHCR 푸시
+
+# 기본 셸
+defaults:
+  run:
+    shell: bash
+
 jobs:
   makeTagAndRelease:
     runs-on: ubuntu-latest
     outputs:
-      tag_name: ${{ steps.create_tag.outputs.new_tag }}
+      tag_name: ${{ steps.create_tag.outputs.new_tag }} # 이후 잡에서 사용할 태그명
     steps:
       - uses: actions/checkout@v4
+
+      # 버전 태그 자동 생성 (vX.Y.Z)
       - name: Create Tag
         id: create_tag
         uses: mathieudutour/github-tag-action@v6.2
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
+
+      # 릴리즈 생성
       - name: Create Release
         id: create_release
         uses: actions/create-release@v1
@@ -51,27 +67,38 @@ jobs:
     needs: makeTagAndRelease
     runs-on: ubuntu-latest
     outputs:
-      DOCKER_IMAGE_NAME: ${{ env.DOCKER_IMAGE_NAME }}
-      OWNER_LC: ${{ env.OWNER_LC }}
+      IMAGE_REPOSITORY: ${{ env.IMAGE_REPOSITORY }} # 다음 잡으로 이미지명 전달
+      OWNER_LC: ${{ env.OWNER_LC }} # 소유자 소문자
     steps:
       - uses: actions/checkout@v4
+
+      # 빌드 컨텍스트에 .env 생성 (비어있어도 실패하지 않게)
       - name: .env 파일 생성
         env:
           DOT_ENV: ${{ secrets.DOT_ENV }}
-        run: echo "$DOT_ENV" > ${{ env.BACKEND_DIR }}/.env
+        run: |
+          mkdir -p "${{ env.BACKEND_DIR }}"
+          echo "${DOT_ENV}" > "${{ env.BACKEND_DIR }}/.env"
+
       - name: Docker Buildx 설치
         uses: docker/setup-buildx-action@v3
+
+      # GHCR 로그인
       - name: 레지스트리 로그인
         uses: docker/login-action@v2
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+
+      # 저장소 소유자명을 소문자로 (GHCR 경로 표준화)
       - name: set lower case owner name
         run: |
-          echo "OWNER_LC=${OWNER,,}" >> ${GITHUB_ENV}
+          echo "OWNER_LC=${OWNER,,}" >> "${GITHUB_ENV}"
         env:
           OWNER: "${{ github.repository_owner }}"
+
+      # 캐시를 최대한 활용하여 빌드 → 버전태그 및 latest 동시 푸시
       - name: 빌드 앤 푸시
         uses: docker/build-push-action@v6
         with:
@@ -80,27 +107,35 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           tags: |
-            ghcr.io/${{ env.OWNER_LC }}/${{ env.DOCKER_IMAGE_NAME }}:${{ needs.makeTagAndRelease.outputs.tag_name }}
-            ghcr.io/${{ env.OWNER_LC }}/${{ env.DOCKER_IMAGE_NAME }}:latest
+            ghcr.io/${{ env.OWNER_LC }}/${{ env.IMAGE_REPOSITORY }}:${{ needs.makeTagAndRelease.outputs.tag_name }}
+            ghcr.io/${{ env.OWNER_LC }}/${{ env.IMAGE_REPOSITORY }}:latest
 
   deploy:
+    name: Blue/Green 무중단 배포
     runs-on: ubuntu-latest
     needs: [makeTagAndRelease, buildImageAndPush]
     env:
-      DOCKER_IMAGE_NAME: ${{ needs.buildImageAndPush.outputs.DOCKER_IMAGE_NAME }}
-      OWNER_LC: ${{ needs.buildImageAndPush.outputs.OWNER_LC }}
+      IMAGE_REPOSITORY: ${{ needs.buildImageAndPush.outputs.IMAGE_REPOSITORY }} # 이미지명
+      OWNER_LC: ${{ needs.buildImageAndPush.outputs.OWNER_LC }} # 소유자 소문자
     steps:
+      # AWS 자격 구성
       - uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-region: ${{ secrets.AWS_REGION }}
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+      # Name 태그로 EC2 인스턴스 조회
       - name: 인스턴스 ID 가져오기
         id: get_instance_id
         run: |
-          INSTANCE_ID=$(aws ec2 describe-instances --filters "Name=tag:Name,Values=${{ env.EC2_INSTANCE_TAG_NAME }}" "Name=instance-state-name,Values=running" --query "Reservations[].Instances[].InstanceId" --output text)
-          echo "INSTANCE_ID=$INSTANCE_ID" >> $GITHUB_ENV
-          echo $INSTANCE_ID
+          INSTANCE_ID=$(aws ec2 describe-instances \
+            --filters "Name=tag:Name,Values=${{ env.EC2_INSTANCE_TAG_NAME }}" "Name=instance-state-name,Values=running" \
+            --query "Reservations[].Instances[].InstanceId" --output text)
+          echo "INSTANCE_ID=${INSTANCE_ID}" >> "${GITHUB_ENV}"
+          echo "${INSTANCE_ID}"
+
+      # 원격(SSM)으로 Blue/Green 스위치 수행
       - name: AWS SSM Send-Command
         uses: peterkimzz/aws-ssm-send-command@master
         id: ssm
@@ -112,17 +147,136 @@ jobs:
           working-directory: /
           comment: Deploy
           command: |
+            set -Eeuo pipefail
+
+            # ---------------------------------------------------------
+            # 1) 변수 정의
+            #    - 슬롯 이름은 고정(두 개의 컨테이너 이름)
+            #    - blue/green은 '역할'이며 매 배포마다 바뀜
+            # ---------------------------------------------------------
+            OWNER_LC=${{ env.OWNER_LC }}
+            IMAGE_TAG=${{ needs.makeTagAndRelease.outputs.tag_name }}
+            IMAGE_REPOSITORY=${{ env.IMAGE_REPOSITORY }}
+            IMAGE="ghcr.io/${OWNER_LC}/${IMAGE_REPOSITORY}:${IMAGE_TAG}"
+            SLOT1="${{ env.CONTAINER_1_NAME }}"
+            SLOT2="${{ env.CONTAINER_2_NAME }}"
+            PORT_IN="${{ env.CONTAINER_PORT }}"
+            NET="${{ env.DOCKER_NETWORK }}"
+
+            # OWNER_LC=jhs512
+            # IMAGE_TAG=v0.0.26
+            # IMAGE_REPOSITORY=p-14044-1
+            # IMAGE="ghcr.io/${OWNER_LC}/${IMAGE_REPOSITORY}:${IMAGE_TAG}"
+            # SLOT1="p-14044-1_1"
+            # SLOT2="p-14044-1_2"
+            # PORT_IN="8080"
+            # NET="common"
+
+            echo "🔹 Use image: ${IMAGE}"
+            docker pull "${IMAGE}"
+
+            # ---------------------------------------------------------
+            # 2) Nginx Proxy Manager(NPM) API 토큰 발급
+            #     - secrets.NPM_ID / secrets.NPM_PASSWORD / secrets.NPM_DOMAIN 사용
+            # ---------------------------------------------------------
             TOKEN=$(curl -s -X POST http://127.0.0.1:81/api/tokens \
               -H "Content-Type: application/json" \
-              -d "{\"identity\": \"admin@npm.com\", \"secret\": \"$PASSWORD_1\"}" \
-              | jq -r '.token')
+              -d "{\"identity\": \"admin@npm.com\", \"secret\": \"$PASSWORD_1\"}" | jq -r '.token')
+
+            # 대상 프록시 호스트 ID 조회(도메인 매칭)
             PROXY_ID=$(curl -s -X GET "http://127.0.0.1:81/api/nginx/proxy-hosts" \
-              -H "Authorization: Bearer $TOKEN" \
+              -H "Authorization: Bearer ${TOKEN}" \
               | jq ".[] | select(.domain_names[]==\"$APP_1_DOMAIN\") | .id")
-            docker pull ghcr.io/${{ env.OWNER_LC }}/${{ env.DOCKER_IMAGE_NAME }}:${{ needs.makeTagAndRelease.outputs.tag_name }}
-            docker stop ${{ env.CONTAINER_NAME }}
-            docker rm ${{ env.CONTAINER_NAME }}
-            docker run -d --name ${{ env.CONTAINER_NAME }} --network ${{ env.DOCKER_NETWORK }} ghcr.io/${{ env.OWNER_LC }}/${{ env.DOCKER_IMAGE_NAME }}:${{ needs.makeTagAndRelease.outputs.tag_name }}
-            docker images --format '{{.Repository}}:{{.Tag}}' ghcr.io/${{ env.OWNER_LC }}/${{ env.DOCKER_IMAGE_NAME }} \
-              | grep -v '${{ needs.makeTagAndRelease.outputs.tag_name }}' \
+
+            # 현재 프록시가 바라보는 업스트림(컨테이너명) 조회
+            CURRENT_HOST=$(curl -s -X GET "http://127.0.0.1:81/api/nginx/proxy-hosts/${PROXY_ID}" \
+              -H "Authorization: Bearer ${TOKEN}" \
+              | jq -r '.forward_host')
+
+            echo "🔎 CURRENT_HOST: ${CURRENT_HOST}"
+
+            # ---------------------------------------------------------
+            # 3) 역할(blue/green) 판정
+            #    - blue : 현재 운영 중(CURRENT_HOST)
+            #    - green: 다음 운영(교체 대상)
+            # ---------------------------------------------------------
+            if [[ "${CURRENT_HOST}" == "${SLOT1}" ]]; then
+              BLUE="${SLOT1}"
+              GREEN="${SLOT2}"
+            elif [[ "${CURRENT_HOST}" == "${SLOT2}" ]]; then
+              BLUE="${SLOT2}"
+              GREEN="${SLOT1}"
+            else
+              # 초기 배포: 아직 어떤 슬롯도 가리키지 않으면 SLOT1부터 기동
+              BLUE="none"
+              GREEN="${SLOT1}"
+            fi
+            echo "🎨 role -> blue(now): ${BLUE}, green(next): ${GREEN}"
+
+            # ---------------------------------------------------------
+            # 4) green 역할 컨테이너 재기동
+            #    - 같은 네트워크 상에서 NPM이 컨테이너명:PORT로 프록시하므로 -p 불필요
+            # ---------------------------------------------------------
+            docker rm -f "${GREEN}" >/dev/null 2>&1 || true
+            echo "🚀 run new container → ${GREEN}"
+            docker run -d --name "${GREEN}" \
+              --network "${NET}" \
+              -e TZ=Asia/Seoul \
+              "${IMAGE}"
+
+            # ---------------------------------------------------------
+            # 5) 헬스체크 (/actuator/health 가 200 OK 될 때까지 대기)
+            # ---------------------------------------------------------
+            echo "⏱ health-check: ${GREEN}"
+            HEALTH_OK=false
+            TIMEOUT=120
+            INTERVAL=3
+            ELAPSED=0
+            sleep 8  # 초기 부팅 여유
+
+            until [[ ${ELAPSED} -ge ${TIMEOUT} ]]; do
+              CODE=$(docker exec "${GREEN}" curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:${PORT_IN}/actuator/health" || echo 000)
+              if [[ "${CODE}" == "200" ]]; then
+                HEALTH_OK=true
+                break
+              fi
+              sleep "${INTERVAL}"
+              ELAPSED=$((ELAPSED + INTERVAL))
+            done
+
+            if [[ "${HEALTH_OK}" == false ]]; then
+              echo "❌ ${GREEN} health failed"
+              docker logs --tail=200 "${GREEN}" || true
+              docker rm -f "${GREEN}" || true
+              exit 1
+            fi
+            echo "✅ ${GREEN} healthy"
+
+            # ---------------------------------------------------------
+            # 6) 업스트림 전환 (기존 SSL/설정 유지, forward_host/forward_port만 업데이트)
+            # ---------------------------------------------------------
+            NEW_CFG=$(jq -n --arg host "${GREEN}" --argjson port ${PORT_IN} '{forward_host:$host, forward_port:$port}')
+            curl -s -X PUT "http://127.0.0.1:81/api/nginx/proxy-hosts/${PROXY_ID}" \
+              -H "Authorization: Bearer ${TOKEN}" \
+              -H "Content-Type: application/json" \
+              -d "${NEW_CFG}" >/dev/null
+            echo "🔁 switch upstream → ${GREEN}:${PORT_IN}"
+
+            # ---------------------------------------------------------
+            # 7) 이전 blue 종료(최초 배포면 생략)
+            # ---------------------------------------------------------
+            if [[ "${BLUE}" != "none" ]]; then
+              docker rm -f "${BLUE}" >/dev/null 2>&1 || true
+              echo "🧹 removed old blue: ${BLUE}"
+            fi
+
+            # ---------------------------------------------------------
+            # 8) 이미지 정리(현재 태그/ latest 제외) - 빈 인자여도 실패 X
+            # ---------------------------------------------------------
+            docker images --format '{{.Repository}}:{{.Tag}}' \
+              ghcr.io/${OWNER_LC}/${IMAGE_REPOSITORY} \
+              | grep -v ":${IMAGE_TAG}$" \
+              | grep -v ":latest$" \
               | xargs -r docker rmi
+
+            echo "🏁 Blue/Green switch complete. now blue = ${GREEN} (역할 전환 완료)"
