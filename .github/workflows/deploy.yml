@@ -93,33 +93,66 @@ jobs:
           aws-region: ${{ secrets.AWS_REGION }}
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
       - name: 인스턴스 ID 가져오기
         id: get_instance_id
         run: |
-          INSTANCE_ID=$(aws ec2 describe-instances --filters "Name=tag:Name,Values=${{ env.EC2_INSTANCE_TAG_NAME }}" "Name=instance-state-name,Values=running" --query "Reservations[].Instances[].InstanceId" --output text)
+          # Name 태그로 실행 중인 인스턴스 조회
+          INSTANCE_ID=$(aws ec2 describe-instances \
+            --filters "Name=tag:Name,Values=${{ env.EC2_INSTANCE_TAG_NAME }}" "Name=instance-state-name,Values=running" \
+            --query "Reservations[].Instances[].InstanceId" --output text)
           echo "INSTANCE_ID=$INSTANCE_ID" >> $GITHUB_ENV
-          echo $INSTANCE_ID
-      - name: AWS SSM Send-Command
-        uses: peterkimzz/aws-ssm-send-command@master
-        id: ssm
-        with:
-          aws-region: ${{ secrets.AWS_REGION }}
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          instance-ids: ${{ env.INSTANCE_ID }}
-          working-directory: /
-          comment: Deploy
-          command: |
-            docker pull ghcr.io/${{ env.OWNER_LC }}/${{ env.DOCKER_IMAGE_NAME }}:${{ needs.makeTagAndRelease.outputs.tag_name }}
-            docker stop ${{ env.CONTAINER_NAME }}
-            docker rm ${{ env.CONTAINER_NAME }}
-            docker run -d --name ${{ env.CONTAINER_NAME }} --network ${{ env.DOCKER_NETWORK }} ghcr.io/${{ env.OWNER_LC }}/${{ env.DOCKER_IMAGE_NAME }}:${{ needs.makeTagAndRelease.outputs.tag_name }}
-            docker images --format '{{.Repository}}:{{.Tag}}' ghcr.io/${{ env.OWNER_LC }}/${{ env.DOCKER_IMAGE_NAME }} \
-              | grep -v '${{ needs.makeTagAndRelease.outputs.tag_name }}' \
-              | xargs -r docker rmi
-      - name: SSM 실행 결과 가져오기
+          echo "$INSTANCE_ID"
+
+      - name: CloudWatch Log Group 준비(없으면 생성 + 1일 보관)
+        env:
+          LOG_GROUP_NAME: /aws/ssm/deploy # ← 원하는 이름으로 변경 가능
         run: |
-          aws ssm list-command-invocations \
-            --command-id ${{ steps.ssm.outputs.command-id }} \
-            --details \
-            --region ${{ secrets.AWS_REGION }}
+          # 로그그룹 생성(이미 있으면 무시)
+          aws logs create-log-group --log-group-name "$LOG_GROUP_NAME" 2>/dev/null || true
+          # 보관 주기 1일 → 자동 삭제(무료 유지 목적)
+          aws logs put-retention-policy --log-group-name "$LOG_GROUP_NAME" --retention-in-days 1
+
+      - name: SSM Send-Command (CloudWatch Logs로 출력 저장)
+        env:
+          LOG_GROUP_NAME: /aws/ssm/deploy
+          DOCKER_IMAGE_NAME: ${{ env.DOCKER_IMAGE_NAME }}
+          CONTAINER_NAME: ${{ env.CONTAINER_NAME }}
+          DOCKER_NETWORK: ${{ env.DOCKER_NETWORK }}
+          OWNER_LC: ${{ env.OWNER_LC }}
+          TAG_NAME: ${{ needs.makeTagAndRelease.outputs.tag_name }}
+        run: |
+          # ▼ 실제 배포 스크립트(네가 쓰던 커맨드를 그대로 넣되, 안전하게 stop/rm 실패 무시)
+          #   - CloudWatchOutputEnabled=true 로 콘솔의 "출력 보기" 버튼이 항상 활성화됨
+          #   - heredoc 을 'EOS' 로 감싸 GitHub 표현식/중괄호 이스케이프 문제 방지
+          read -r -d '' CMD <<EOS
+          docker pull ghcr.io/${OWNER_LC}/${DOCKER_IMAGE_NAME}:${TAG_NAME}
+
+          # 컨테이너가 없어도 실패하지 않게 처리
+          docker stop ${CONTAINER_NAME} 2>/dev/null || true
+          docker rm   ${CONTAINER_NAME} 2>/dev/null || true
+
+          docker run -d \
+            --name ${CONTAINER_NAME} \
+            --network ${DOCKER_NETWORK} \
+            ghcr.io/${OWNER_LC}/${DOCKER_IMAGE_NAME}:${TAG_NAME}
+
+          # 사용하지 않는 이미지 정리
+          # - --filter=reference 로 해당 리포만 걸러냄
+          # - 최신 배포 태그와 'latest' 는 보존
+          docker images \
+            --format '{{.Repository}}:{{.Tag}}' \
+            --filter=reference='ghcr.io/${OWNER_LC}/${DOCKER_IMAGE_NAME}:*' \
+          | grep -v '^ghcr.io/${OWNER_LC}/${DOCKER_IMAGE_NAME}:${TAG_NAME}$' \
+          | grep -v '^ghcr.io/${OWNER_LC}/${DOCKER_IMAGE_NAME}:latest$' \
+          | xargs -r docker rmi -f
+          EOS
+
+          # ▼ CloudWatch Logs 연동: SSM Run Command 출력이 로그그룹에 저장됨
+          aws ssm send-command \
+            --instance-ids "${{ env.INSTANCE_ID }}" \
+            --document-name "AWS-RunShellScript" \
+            --comment "Deploy from GitHub Actions" \
+            --parameters commands="$CMD",workingDirectory="/" \
+            --cloud-watch-output-config "CloudWatchOutputEnabled=true,CloudWatchLogGroupName=${LOG_GROUP_NAME}" \
+            --output json
