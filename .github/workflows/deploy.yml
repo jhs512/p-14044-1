@@ -117,9 +117,3 @@ jobs:
             docker images --format '{{.Repository}}:{{.Tag}}' ghcr.io/${{ env.OWNER_LC }}/${{ env.DOCKER_IMAGE_NAME }} \
               | grep -v '${{ needs.makeTagAndRelease.outputs.tag_name }}' \
               | xargs -r docker rmi
-      - name: SSM 실행 결과 가져오기
-        run: |
-          aws ssm list-command-invocations \
-            --command-id ${{ steps.ssm.outputs.command-id }} \
-            --details \
-            --region ${{ secrets.AWS_REGION }}
